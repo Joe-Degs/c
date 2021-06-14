@@ -6,6 +6,11 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+/* This tutorial demonstrates doing a name lookup with getaddrinfo.
+ * It takes the address family and address from the loaded addrinfo struct
+ * and then prints it in presentation form.
+ * */
+
 int main(int argc, char *argv[]) {
     struct addrinfo hints, *res, *p;
     int status;
@@ -42,7 +47,7 @@ int main(int argc, char *argv[]) {
             ipver = "IPv4";
         } else {
             struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *) p->ai_addr;
-            addr = &(ipv4->sin6_addr);
+            addr = &(ipv6->sin6_addr);
             ipver = "IPv6";
         }
 
