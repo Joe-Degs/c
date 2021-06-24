@@ -105,7 +105,7 @@ int main(void) {
         exit(1);
     }
 
-    printf("server: waiting for connections...\n");
+    printf("server: waiting for connections on localhost:%s\n", PORT);
 
     // accept connections and handle them.
     while(1) {
