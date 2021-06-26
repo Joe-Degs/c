@@ -30,7 +30,9 @@ int get_listener_socket(void) {
     int yes;
     int rv;
 
-    struct addrinfo hints, *ai, *p;
+    struct addrinfo hints;
+    struct addrinfo *ai;
+    struct addrinfo *p;
 
     // memset to prefeel struct.
     memset(&hints, 0, sizeof(hints));
@@ -84,7 +86,7 @@ int get_listener_socket(void) {
 typedef struct info_pfd {
     int fd_count;
     int fd_size;
-    struct pollfd *pfds[];
+    struct pollfd **pfds;
 } info_pfd;
 
 // an incredibly hard thing to do in c, managing variable sized arrays.
@@ -92,7 +94,7 @@ info_pfd *new_pfds(int size) {
     info_pfd *npfd = malloc(sizeof(info_pfd));
     npfd->fd_count = 0;
     npfd->fd_size = size;
-    *(npfd->pfds) = malloc(sizeof(struct pollfd) * size);
+    (*(npfd->pfds)) = malloc(sizeof(struct pollfd) * size);
 
     return npfd;
 }
@@ -105,7 +107,7 @@ void add_to_pfds(int newfd, info_pfd *ipfd) {
     if (ipfd->fd_count == ipfd->fd_size) {
         ipfd->fd_size *= 2;
 
-        *(ipfd->pfds) = realloc(ipfd->pfds, sizeof(*(ipfd->pfds)) * ipfd->fd_size);
+        (*(ipfd->pfds)) = realloc(ipfd->pfds, sizeof(*(ipfd->pfds)) * ipfd->fd_size);
     }
 
     (*(ipfd->pfds))[ipfd->fd_count].fd = newfd;
@@ -124,6 +126,11 @@ void del_from_pfds(int i, info_pfd *ipfd) {
     (ipfd->fd_count)--;
 }
 
+void pfd_debuginfo(info_pfd *ipfd) {
+   printf("Poll file descriptor debug info:\n\tfd_count = %d\n\tfd_size",
+           ipfd->fd_count, ipfd->fd_size); 
+}
+
 int main(void) {
     int lstn; // listening socket file descriptor
 
@@ -136,12 +143,16 @@ int main(void) {
     char rIP[INET6_ADDRSTRLEN];
 
     // lets start with 5 connections.
-    info_pfd *ipfd = new_pfds(5);
+    info_pfd *ipfd = new_pfds(10);
 
     if ((lstn = get_listener_socket()) < 0) {
         fprintf(stderr, "error getting listening socket\n");
         exit(1);
     }
+    
+
+    // debug
+    pfd_debuginfo(ipfd);
     
     // add listener socket to poll file descriptors.
     add_to_pfds(lstn, ipfd);
@@ -153,7 +164,8 @@ int main(void) {
             exit(1);
         }
 
-        for (int i = 0; i < ipfd->fd_count; i++) { 
+        int i;
+        for (i = 0; i < ipfd->fd_count; i++) { 
             // check for events we can read.
             if ((*(ipfd->pfds))[i].revents & POLLIN) {
 
@@ -166,6 +178,9 @@ int main(void) {
                         continue;
                     }
                     add_to_pfds(newfd, ipfd);
+
+                    // debug
+                    pfd_debuginfo(ipfd);
 
                     printf("pollserver: new connection from %s on socket %d\n",
                             inet_ntop(raddr.ss_family,
@@ -188,10 +203,14 @@ int main(void) {
 
                         close((*(ipfd->pfds))[i].fd);  // close connection
                         del_from_pfds(i, ipfd);
+
+                        // debug
+                        pfd_debuginfo(ipfd);
                     } else {
 
                         // we got good data from the client
-                        for (int j = 0; j < ipfd->fd_count; j++) {
+                        int j;
+                        for (j = 0; j < ipfd->fd_count; j++) {
                             // send to everyone except sender and lstn
                             int dst_fd = (*(ipfd->pfds))[j].fd;
 
