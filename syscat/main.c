@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
         fd = demopen(argv[2]);
     }
 
-   char* buf = malloc(sizeof(char) * n);
+   char *buf = malloc(sizeof(char) * n);
    while (1) {
        int r = read(fd, buf, n);
        if (r <= 0) {
