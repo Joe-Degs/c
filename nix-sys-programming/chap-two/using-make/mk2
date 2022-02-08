@@ -1,0 +1,16 @@
+CC = gcc
+CFLAGS = -Wall
+OBJS = t.o mysum.o
+INCLUDE = -Ipath
+
+myt: type.h $(OBJS)
+	$(CC) $(CFLAGS) -o exe $(OBJS) $(INCLUDE)
+
+t.o: type.h t.c
+	gcc -c t.c
+
+mysum: type.h mysum.c
+	gcc -c mysum.c
+
+clean:
+	rm exe mysum.o t.o
