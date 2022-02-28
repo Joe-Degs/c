@@ -1,0 +1,39 @@
+Polling is the technique used to wait on many file descriptors for data events,
+so we can act based on the events. polling is kinda neat because it lifts all
+the work that will be needed is you maybe had multiple socket file descriptors
+that you need to listen on and respond to incoming requests. Maybe you could run
+each connection on a separate thread and handle the requests on those. You could
+also them in an event loop and handle requests as they come. But those seem
+really difficult. Polling is much more easier, you jush call poll with a bunch
+of poll filedescriptors and then do what you wanna do and thats neat.
+
+
+#include <poll.h>
+
+int poll(struct pollfd fds[], ndfs_t nfds, int timeout)
+        ndfs -> number of file descriptors in fds[]
+        timeout -> timeout in milliseconds, -1 for forever.
+
+    struct pollfd struct {
+        int fd; -> file descriptor of the socket
+        short events;   -> events you want to listen for.
+        short revents;  -> bitmap of events returned
+    }
+
+        events -> is a bitwise or of the ff macros
+
+        POLLIN  -> alert me when data is ready to be recv()
+        POLLOUT -> alert me when i can send() on the socket 
+
+        revents -> is set to one of the macros on return.
+
+    -> poll returns;
+        0 -> on timeout
+        -1 -> on error
+        N -> on sucess where N is the number of fds satisfy the event.
+
+
+feel like i'm rewriting the manpages for linux LOL!. i'm just going to read it
+now.
+
+
