@@ -5,6 +5,19 @@ the at&t assembly syntax (same as gnu assembly syntax) is the default assembly
 used in unix systems. The intel syntax is similar to the one used in Windows
 operating systems (and its the one i am familiar with).
 
+### registers
+
+| 64 bit | 32 bit | 16 bit | 8 bit (high) | 8 bit (lower) |
+|--------|--------|--------|--------------|---------------|
+| RAX | EAX | AX | AH | AL | 
+| RBX | EBX | BX | BH | BL |
+| RCX | ECX | CX | CH | CL |
+| RDX | EDX | DX | DH | DL |
+| RSI | ESI | SI |
+| RDI | EDI | DI |
+| RSP | ESP | SP |
+| RBP | EBP | BP |
+
 ### stack
 > the stack grows toward the lower memory addresses and decreases towards the
 lower addresses. So, to allocate stack space, you subtract and to deallocate 
@@ -27,19 +40,6 @@ addresses ||------------------------|
            |                        |
            |------------------------|
  ```
-
-### registers
-
-| 64 bit | 32 bit | 16 bit | 8 bit (high) | 8 bit (lower) |
-|--------|--------|--------|--------------|---------------|
-| RAX | EAX | AX | AH | AL | 
-| RBX | EBX | BX | BH | BL |
-| RCX | ECX | CX | CH | CL |
-| RDX | EDX | DX | DH | DL |
-| RSI | ESI | SI |
-| RDI | EDI | DI |
-| RSP | ESP | SP |
-| RBP | EBP | BP |
 
 #### references
 - [AT&T Assembly Syntax](https://flint.cs.yale.edu/cs421/papers/x86-asm/asm.html)
