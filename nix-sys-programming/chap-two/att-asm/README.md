@@ -42,8 +42,8 @@ addresses ||------------------------|
 | RBP | EBP | BP |
 
 #### references
-- [](https://flint.cs.yale.edu/cs421/papers/x86-asm/asm.html)
-- [](https://csiflabs.cs.ucdavis.edu/~ssdavis/50/att-syntax.htm)
+- [AT&T Assembly Syntax](https://flint.cs.yale.edu/cs421/papers/x86-asm/asm.html)
+- [AT&T Assembly Programming](https://csiflabs.cs.ucdavis.edu/~ssdavis/50/att-syntax.htm)
 - [AT&T assembly syntax and IA-32 instructions](https://gist.github.com/DmitrySoshnikov/c67cbde1cceb0d6a194830b41baa5c8b)
 - [x86 Assembly/GNU assembly syntax](https://en.wikibooks.org/wiki/X86_Assembly/GNU_assembly_syntax)
 - [AT&T Assembly Language](http://neuraldk.org/document.php?att_asm)
