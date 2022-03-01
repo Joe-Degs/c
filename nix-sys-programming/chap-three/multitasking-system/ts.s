@@ -1,3 +1,4 @@
+# vim; ft=asm	
 	.globl running, scheduler, tswitch
 tswitch:
 SAVE:	pushl %eax
