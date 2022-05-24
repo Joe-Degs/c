@@ -7,13 +7,13 @@ import (
 )
 
 func main() {
-	conn, err := dit.Dial("udp6", "localhost:696", "localhost:69")
+	conn, err := dit.Dial("udp6", "localhost:69")
 	if err != nil {
 		log.Fatal(err)
 	}
 	pk := &dit.ReadWriteRequest{
-		Opcode:   dit.Wrq,
-		Filename: "file",
+		Opcode:   dit.Rrq,
+		Filename: "one_meg_file",
 		Mode:     "netascii",
 	}
 	conn.SnoopWithPacket(pk)
