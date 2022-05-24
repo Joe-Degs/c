@@ -1,9 +1,8 @@
-// this file contains types and functions to encode/decode packets as defined
-// in rfc 1350
+// packet contains types and functions to marshal/unmarshal TFTP packets as
+// described in RFC1350, apendix I.
 package dit
 
 import (
-	"encoding"
 	"encoding/binary"
 	"fmt"
 	"unicode/utf8"
@@ -11,28 +10,57 @@ import (
 
 // Packet is a TFTP protocol packet
 type Packet interface {
-	encoding.BinaryUnmarshaler
+	Op() Opcode
+	marshal() ([]byte, error)
+	unmarshal([]byte) error
 }
 
-// An Opcode is a TFTP protocol opcode representing the type of message
-// a packet contains.
+func opcode(b []byte) Opcode {
+	return Opcode(binary.BigEndian.Uint16(b[0:2]))
+}
+
+// TODO(Joe-Degs): change decode packet to MarshalPacket or something and
+// remove the depency on encoding. U don't really need that.
+func DecodePacket(b []byte) (Packet, error) {
+	var p Packet
+	switch op := opcode(b); op {
+	case Rrq, Wrq:
+		p = &ReadWriteRequest{Opcode: op}
+	case Data:
+		p = &DataPacket{Opcode: op}
+	case Ack:
+		p = &AckPacket{Opcode: op}
+	case Error:
+		p = &ErrorPacket{Opcode: op}
+	default:
+		return nil, fmt.Errorf("dit: opcode %d not recognized", op)
+	}
+
+	if err := p.unmarshal(b); err != nil {
+		return nil, fmt.Errorf("dit: unmarshal packet: %w", err)
+	}
+
+	return p, nil
+}
+
+// MarshalPacket turns a structured packet to its binary representation
+// for sending over the wire
+func MarshalPacket(p Packet) ([]byte, error) {
+	if p == nil {
+		return nil, fmt.Errorf("dit: cannot marshal nil packet")
+	}
+	return p.marshal()
+}
+
+// An Opcode encodes the type of the packet
 type Opcode uint16
 
 const (
-	// A Read Request Type
-	Rrq Opcode = iota + 1
-
-	// A Write Request Type
-	Wrq
-
-	// Data Type
-	Data
-
-	// Acknowledgement Type
-	Ack
-
-	// Error Type
-	Error
+	Rrq   Opcode = iota + 1 // A Read Request Type
+	Wrq                     // A Write Request Type
+	Data                    // Data Type
+	Ack                     // Acknowledgement Type
+	Error                   // Error Type
 )
 
 // ReadWriteRequest is a TFTP read/write request packet as described in RFC1350,
@@ -43,8 +71,8 @@ type ReadWriteRequest struct {
 	Mode     string
 }
 
-func (p *ReadWriteRequest) UnmarshalBinary(b []byte) error {
-	p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
+func (p *ReadWriteRequest) unmarshal(b []byte) error {
+	// p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
 
 	// strings are null terminated bytes
 	strs := b[2:]
@@ -74,7 +102,7 @@ func (p *ReadWriteRequest) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-func (p *ReadWriteRequest) MarshalBinary() ([]byte, error) {
+func (p *ReadWriteRequest) marshal() ([]byte, error) {
 	data := make([]byte, 2)
 	binary.BigEndian.PutUint16(data, uint16(p.Opcode))
 	data = append(data, append([]byte(p.Filename), 0)...)
@@ -85,6 +113,10 @@ func (p *ReadWriteRequest) MarshalBinary() ([]byte, error) {
 	return data, nil
 }
 
+func (p ReadWriteRequest) Op() Opcode {
+	return p.Opcode
+}
+
 // DataPacket is a TFTP data packet as described in RFC1350, apendix I
 type DataPacket struct {
 	Opcode      Opcode
@@ -92,11 +124,27 @@ type DataPacket struct {
 	Data        []byte
 }
 
-func (p *DataPacket) UnmarshalBinary(b []byte) error {
-	p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
+func (DataPacket) Op() Opcode {
+	return Data
+}
+
+func (p *DataPacket) unmarshal(b []byte) error {
+	// p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
 	p.BlockNumber = binary.BigEndian.Uint16(b[2:4])
+
+	// TODO(Joe-Degs): do not do this! slicing reuses the same
+	// underlying array so yeah if you hold on to this packet and
+	// the caller tampers with the slice you get affected to. consider
+	// using reusable buffers of some sort or create a new slice everytime
 	p.Data = b[4:]
 	return nil
+}
+
+func (p *DataPacket) marshal() ([]byte, error) {
+	data := make([]byte, 4)
+	binary.BigEndian.PutUint16(data[0:2], uint16(p.Opcode))
+	binary.BigEndian.PutUint16(data[2:4], p.BlockNumber)
+	return append(data, p.Data...), nil
 }
 
 // AckPacket is a TFTP acknowledgement packet as described in RFC1350,apendix I
@@ -105,10 +153,21 @@ type AckPacket struct {
 	BlockNumber uint16
 }
 
-func (p *AckPacket) UnmarshalBinary(b []byte) error {
-	p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
+func (AckPacket) Op() Opcode {
+	return Ack
+}
+
+func (p *AckPacket) unmarshal(b []byte) error {
+	// p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
 	p.BlockNumber = binary.BigEndian.Uint16(b[2:4])
 	return nil
+}
+
+func (p *AckPacket) marshal() ([]byte, error) {
+	data := make([]byte, 4)
+	binary.BigEndian.PutUint16(data[0:2], uint16(p.Opcode))
+	binary.BigEndian.PutUint16(data[2:4], p.BlockNumber)
+	return data, nil
 }
 
 // ErrorCode represents a TFTP error code as specified in RFC1350, apendix I
@@ -133,40 +192,25 @@ type ErrorPacket struct {
 	ErrMsg    string
 }
 
-func (p *ErrorPacket) UnmarshalBinary(b []byte) error {
-	p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
+func (ErrorPacket) Op() Opcode {
+	return Error
+}
+
+func (p *ErrorPacket) unmarshal(b []byte) error {
+	// p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
 	p.ErrorCode = ErrorCode(binary.BigEndian.Uint16(b[2:4]))
 	if bytes := b[4 : len(b)-1]; len(bytes) >= 1 {
 		if !utf8.Valid(bytes) {
-			return fmt.Errorf("dit: error messages bytes contains illegal bytes, %s", bytes)
+			return fmt.Errorf("dit: errmsg contains invalid utf8, %s", bytes)
 		}
 		p.ErrMsg = string(bytes)
 	}
 	return nil
 }
 
-// TODO(Joe-Degs): change decode packet to MarshalPacket or something and
-// remove the depency on encoding. U don't really need that.
-func DecodePacket(b []byte) (Packet, error) {
-	opcode := Opcode(binary.BigEndian.Uint16(b[0:2]))
-	switch opcode {
-	case Rrq, Wrq:
-		p := &ReadWriteRequest{}
-		err := p.UnmarshalBinary(b)
-		return p, err
-	case Data:
-		p := &DataPacket{}
-		err := p.UnmarshalBinary(b)
-		return p, err
-	case Ack:
-		p := &AckPacket{}
-		err := p.UnmarshalBinary(b)
-		return p, err
-	case Error:
-		p := &ErrorPacket{}
-		err := p.UnmarshalBinary(b)
-		return p, err
-	default:
-		return nil, fmt.Errorf("dit: unrecognized opcode in packet, %d", opcode)
-	}
+func (p *ErrorPacket) marshal() ([]byte, error) {
+	data := make([]byte, 4)
+	binary.BigEndian.PutUint16(data[0:2], uint16(p.Opcode))
+	binary.BigEndian.PutUint16(data[2:4], uint16(p.ErrorCode))
+	return append(data, append([]byte(p.ErrMsg), 0)...), nil
 }

@@ -3,74 +3,250 @@
 package dit
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+)
+
+var (
+	// got a packet from another client while actively connected to another
+	ErrUnexpectedTID = errors.New("dit: packet from unexpected TID/address")
+
+	// calling Accept on a client connections
+	ErrClientAccept = errors.New("dit: a client cannot accept new connections")
 )
 
 // Conn can send and recieve files using the tftp protocol.
 // It keeps the address of the TFTP server connected to maintain
 // a kind of connection between server and client.
 type Conn struct {
-	c     *net.UDPConn
-	saddr netip.AddrPort
+	// This is the primary connection, an active udp listener.
+	// If the Conn is a client (connected=true) it accepts
+	// packets from only destTID and writes only to it.
+	// If the Conn is a listener/server (connected=false) it
+	// can accept read/write requests from any addr and create a
+	// new client connection to handle the request
+	c *net.UDPConn
+
+	// This holds the address that a client is actively connected to.
+	destTID netip.AddrPort
+
+	// True if the Conn is a client / actively reading/writing to another
+	// client. False if Conn is a server and only handling read/write requests.
+	connected bool
+
+	mu sync.Mutex
 }
 
-// Dial connects to TFTP server and returns a `Conn` for sending/recieving
-// files. It creates a udp multicast listener on an interface listening
-// for all packets sent to that host.
+// Dial connects to a TFTP server and returns a half open connection.
 //
-// The `localAddr` can be an empty string, in which case an ephemeral port
-// is requested from the system to use a the client address.
-// `remoteAddr` on the other hand can never be empty or nil, it represents
-// the address of TFTP server to connect to.
-func Dial(network, localAddr, remoteAddr string) (*Conn, error) {
+// use the `connect` method to fully open the connection
+func Dial(network, address string) (*Conn, error) {
 	if !strings.Contains(network, "udp") {
 		return nil, fmt.Errorf("dit: protocol runs only over udp, %s", network)
 	}
 
-	if localAddr == "" {
-		localAddr = "localhost:0"
-	}
-	laddr, err := net.ResolveUDPAddr(network, localAddr)
+	// get an ephemeral local address for the client to listen for packets
+	tid, err := net.ResolveUDPAddr(network, "localhost:0")
 	if err != nil {
 		return nil, err
 	}
 
-	raddr, err := net.ResolveUDPAddr(network, remoteAddr)
+	// resolve server address and store it as the initial TID of the server
+	raddr, err := net.ResolveUDPAddr(network, address)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := net.ListenUDP(network, laddr)
+	c, err := net.ListenUDP(network, tid)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Conn{c, raddr.AddrPort()}, nil
+	return &Conn{c: c, destTID: raddr.AddrPort()}, nil
 }
 
-// Write writes `len(p)` bytes to the TFTP server
+// Listen announces on the network and returns a Conn that is capable of
+// waiting for and handling read/write requests
+//
+// The Conn returned from Listen does not respond to any clients, it merely
+// listens for read/write requests using the Accept method and returns
+// a Conn that is capable of responding back to clients
+func Listen(network, address string) (*Conn, error) {
+	if !strings.Contains(network, "udp") {
+		return nil, fmt.Errorf("dit: protocol runs only over udp, %s", network)
+	}
+
+	addr, err := net.ResolveUDPAddr(network, address)
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := net.ListenUDP(network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Conn{c: c}, nil
+}
+
+// Accept waits and returns a Conn capable of responding to read/write
+// requests appropriately.
+//
+// This function is only supposed to be called on listening Conn's
+func (c *Conn) Accept() (*Conn, error) {
+	if c.connected {
+		return nil, ErrClientAccept
+	}
+
+	// lock down connection so no other go routine can change
+	// the connection state while it is actively accepting
+	// connections
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	buf := make([]byte, 256)
+	for {
+		n, clientTID, err := c.c.ReadFromUDP(buf)
+		if err != nil {
+			return nil, fmt.Errorf("dit: accept: %w", err)
+		}
+
+		if op := opcode(buf[:n]); op != Rrq || op != Wrq {
+			continue
+		}
+
+		// ephemeral port for the designated Conn as a unique TID
+		srvTID, err := net.ResolveUDPAddr(clientTID.Network(), "localhost:0")
+		if err != nil {
+			return nil, fmt.Errorf("dit: accept: %w", err)
+		}
+
+		conn, err := net.ListenUDP(clientTID.Network(), srvTID)
+		if err != nil {
+			return nil, fmt.Errorf("dit: accept: %w", err)
+		}
+
+		// TODO(Joe-Degs): TLDR: find a way to add the new request just
+		// recieved to the connection, so it can handle it.
+		//
+		// there is one little itsy bitsy thing that
+		// needs taking care of. you got a new read/write request right..
+		// you gotta handle that. But you just created and return a new
+		// connection that knew nothing of the request you just recieved.
+		// -> first thought is to have a file buffer kind  of thingy
+		// that reads files from the os and gives you chunks you can send
+		// into the connections. Now, if you create a new connection, you
+		// you make the file buffer thingy with the new request and then
+		// hand it over to the server to handle
+		return &Conn{
+			c:         conn,
+			destTID:   clientTID.AddrPort(),
+			connected: true,
+		}, nil
+	}
+
+	return nil, nil
+}
+
+// DestinationTID returns the destination address (transfer identifier)
+// of a connection
+func (c *Conn) DestinationTID() *netip.AddrPort {
+	if c.connected {
+		return &c.destTID
+	}
+	return nil
+}
+
+// SourceTID returns the source address (transfer identifier) of a connection
+func (c *Conn) SourceTID() *netip.AddrPort {
+	if c.connected {
+		addr := c.c.LocalAddr()
+		ipport, err := netip.ParseAddrPort(addr.String())
+		if err != nil {
+			return nil
+		}
+		return &ipport
+	}
+	return nil
+}
+
+// connect connects two endpoints wanting to send/recieve files from each other
+//
+// It takes two arguments; `in` buffer containing the request and `out` buffer
+// to write response into.
+// Its purpose is to send the initial packet that establishes connections
+// (read/write packets) and wait for a response from the server. if it
+// recieves a response, it keeps the address of the sender as the destination
+// TID
+func (c *Conn) connect(in []byte, out []byte) (n int, addr netip.AddrPort, err error) {
+	// send request to server
+	n, err = c.c.WriteToUDPAddrPort(in, c.destTID)
+	if err != nil {
+		return n, addr, fmt.Errorf("dit: connect write: %w", err)
+	}
+
+	// wait for response from a designated peer
+	c.SetReadDeadline(10 * time.Second)
+	n, addr, err = c.ReadFromAddrPort(out)
+	c.connected = true
+	c.destTID = addr
+	return n, addr, err
+}
+
+// Write writes atmost len(n) bytes from b to the connection
+//
+// This method is only supposed to be called on connections, listening Conn's
+// are not connections becuase they just listen for requests and never respond
+// to them.
 func (c *Conn) Write(b []byte) (int, error) {
-	if !c.saddr.IsValid() {
-		return 0, fmt.Errorf("dit: invalid server address, %s", c.saddr)
+	// write to specific connection if you are connected
+	if c.connected && c.destTID.IsValid() {
+		return c.c.WriteToUDPAddrPort(b, c.destTID)
+
 	}
-	return c.c.WriteToUDPAddrPort(b, c.saddr)
+	return c.c.Write(b)
 }
 
-// Read waits and reads `len(p)` from the TFTP server connected to.
+// ReadFrom waits and reads atmost len(b) bytes into b, returning the
+// number of bytes written and the address of the sender or an error
+func (c *Conn) ReadFrom(b []byte) (int, net.Addr, error) {
+	return c.c.ReadFrom(b)
+}
+
+// ReadFromAddrPort waits and reads atmost len(b) bytes into b, returning
+// the number of bytes written and the address of the sender or an error
+func (c *Conn) ReadFromAddrPort(b []byte) (int, netip.AddrPort, error) {
+	return c.c.ReadFromUDPAddrPort(b)
+}
+
+// Read reads atmost len(b) bytes from the connection return the number of
+// bytes written or an error.
+//
+// When performing reads on Conn that is connected (actively sending/recieving
+// data). It checks if the packet is from the peer it is connected to, if not
+// it returns the ErrUnexpectedTID error which implies the packet should be
+// ignored.
 func (c *Conn) Read(b []byte) (int, error) {
-	if !c.saddr.IsValid() {
-		return 0, fmt.Errorf("dit: invalid server address, %s", c.saddr)
+
+	// if this is an active connection, but the write
+	// is from a different TID return unexpected TID error
+	if c.connected {
+		n, addr, err := c.ReadFromAddrPort(b)
+		if err == nil && addr != c.destTID {
+			return n, ErrUnexpectedTID
+		}
+		return n, err
 	}
-	n, addr, err := c.c.ReadFromUDPAddrPort(b)
-	fmt.Println("%s\n", addr)
-	return n, err
+
+	return c.c.Read(b)
 }
 
 // SetReadDeadline sets a deadline on reads from the TFTP server.
@@ -83,56 +259,71 @@ func (c *Conn) SetWriteDeadline(n time.Duration) error {
 	return c.c.SetWriteDeadline(time.Now().Add(n))
 }
 
-// ReadFrom
-func (c *Conn) ReadFrom() ([]byte, error) {
-	return nil, nil
-}
-
-// Snoop is a test method to send packets to a TFTP server and wait
-// for responses from the server.
+// Snoop sends a dummpy packet and waits for a response from the tftp server.
 func (c *Conn) Snoop() {
-	c.SnoopWithPacket(nil)
+	p := &ReadWriteRequest{
+		Opcode:   Rrq,
+		Filename: "path/to/file",
+		Mode:     "netascii",
+	}
+	c.SnoopWithPacket(p)
 }
 
-// SnoopWithPacket is `Snoop` but accepts a packet to send to server
+// SnoopWithPacket is `Snoop` but accepts the packet to send
 func (c *Conn) SnoopWithPacket(pk Packet) {
 	if pk == nil {
-		pk = &ReadWriteRequest{
-			Opcode:   Rrq,
-			Filename: "path/to/file",
-			Mode:     "netascii",
-		}
+		log.Fatal("dit: snoopwithpacket: expected a packet")
 	}
 
-	bytes, err := pk.(*ReadWriteRequest).MarshalBinary()
+	bytes, err := pk.marshal()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	data := make([]byte, 256)
+	data := make([]byte, 512+4)
 	for {
 		// write dummy packet
-		if _, err := c.Write(bytes); err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("wrote dummy packet to server; %x\n", bytes)
+		var (
+			n   int
+			err error
+		)
 
-		// set read deadline on the connection
-		c.SetReadDeadline(5 * time.Second)
-		n, addr, err := c.c.ReadFromUDPAddrPort(data)
-		if err != nil {
-			log.Println(err.Error())
-			continue
+		if c.connected {
+			if _, err := c.Write(bytes); err != nil {
+				log.Fatal(err)
+			}
+
+			// set read deadline on the connection
+			c.SetReadDeadline(10 * time.Second)
+			n, err = c.Read(data)
+			if err != nil {
+				log.Println(err.Error())
+				continue
+			}
+		} else {
+			// connect if not already connected
+			if n, _, err = c.connect(bytes, data); err != nil {
+				log.Fatal(err)
+			}
 		}
 
-		fmt.Printf("Server Addr: %s\n", addr)
 		pack, err := DecodePacket(data[:n])
 		if err != nil {
 			log.Println(err.Error())
-			continue
+			return
 		}
 		spew.Dump(pack)
 
-		time.Sleep(10 * time.Second)
+		// send acknowledgement if data was recieved
+		if op := pack.Op(); op == Data {
+			data := pack.(*DataPacket)
+			ack := &AckPacket{
+				Opcode:      op,
+				BlockNumber: data.BlockNumber,
+			}
+			if bytes, err := MarshalPacket(ack); err == nil {
+				c.Write(bytes)
+			}
+		}
 	}
 }
