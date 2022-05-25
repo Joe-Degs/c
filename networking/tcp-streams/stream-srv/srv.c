@@ -24,6 +24,7 @@ void sigchld_handler(int s) {
     errno = saved_errno;
 }
 
+// get ip(v4/v6) address of the client
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in *) sa)->sin_addr);
