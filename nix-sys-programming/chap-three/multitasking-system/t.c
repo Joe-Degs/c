@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <type.h>
+#include "type.h"
 
 PROC proc[NPROC];   // NPROC processes
 PROC *freeList;     // freeList of processes
@@ -7,6 +7,23 @@ PROC *readyQueue;   // priority queue of ready processes
 PROC *running;      // current running proc pointer
 
 #include "queue.c"
+
+int body()
+{
+    int c;
+    printf("proc %d starts from body()\n", running->pid);
+    while(1) {
+        printf("************************************************\n");
+        printf("proc %d running, parent = %d", running->pid, running->ppid);
+        printf("enter a key: [f|s|g] ");
+        c = getchar(); getchar();
+        switch(c) {
+            case 'f': do_fork();    break;
+            case 's': do_switch();  break;
+            case 'q': do_exit();    break;
+        }
+    }
+}
 
 /*
  * kfork() creates a child process; returns child pid.
@@ -41,19 +58,19 @@ int kexit()
     running->priority = 0;
     enqueue(&freeList, running);
     printList("freeList", freeList);
-    tswitch()
+    tswitch();
 }
 
-int do_kfork()
+int do_fork()
 {
     int child = kfork();
     if (child < 0)
         printf("kfork failed'\n");
     else {
-        printf("proc %d kforked a child = %d\n" running->pid, child);
+        printf("proc %d kforked a child = %d\n", running->pid, child);
         printList("readyQueue", readyQueue);
     }
-    return child
+    return child;
 }
 
 int do_switch()
@@ -66,22 +83,6 @@ int do_exit()
     kexit();
 }
 
-int body()
-{
-    int c;
-    printf("proc %d starts from body()\n", running->pid);
-    while(1) {
-        printf("************************************************\n");
-        printf("proc %d running, parent = %d", running->pid, running->ppid);
-        printf("enter a key: [f|s|g] ");
-        c = getchar(); getchar();
-        switch(c) {
-            case 'f': do_fork();    break;
-            case 's': do_switch();  break;
-            case 'q': do_exit();    break;
-        }
-    }
-}
 
 int init()
 {
@@ -108,7 +109,7 @@ int init()
 
 int scheduler()
 {
-    printf("proc %d in scheduler()\n", runnning->pid);
+    printf("proc %d in scheduler()\n", running->pid);
     if (running->status == READY) {
         enqueue(&readyQueue, running);
     }

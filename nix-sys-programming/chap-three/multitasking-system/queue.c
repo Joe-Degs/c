@@ -15,7 +15,7 @@ int enqueue(PROC **queue, PROC *p)
 
 PROC *dequeue(PROC **queue)
 {
-    PROC *P = *queue;
+    PROC *p = *queue;
     if (p)
         *queue = (*queue)->next;
     return p;
