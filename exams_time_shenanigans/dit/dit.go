@@ -39,6 +39,11 @@ type Conn struct {
 	// client. False if Conn is a server and only handling read/write requests.
 	connected bool
 
+	// fb represents a buffered read/writer for reading and writing file to/from
+	// system to client/servers. It contains the request to be serviced when
+	// being initialized.
+	fb *FileBuffer
+
 	mu sync.Mutex
 }
 
@@ -146,9 +151,7 @@ func (c *Conn) Accept() (*Conn, error) {
 			return nil, fmt.Errorf("dit: accept: %w", err)
 		}
 
-		fmt.Println("got packet")
 		if op := opcode(buf[:n]); op != Rrq && op != Wrq {
-			fmt.Println("Opcode:", op)
 			continue
 		}
 
@@ -163,22 +166,22 @@ func (c *Conn) Accept() (*Conn, error) {
 			return nil, fmt.Errorf("dit: accept: %w", err)
 		}
 
-		// TODO(Joe-Degs): TLDR: find a way to add the new request just
-		// recieved to the connection, so it can handle it.
-		//
-		// there is one little itsy bitsy thing that
-		// needs taking care of. you got a new read/write request right..
-		// you gotta handle that. But you just created and return a new
-		// connection that knew nothing of the request you just recieved.
-		// -> first thought is to have a file buffer kind  of thingy
-		// that reads files from the os and gives you chunks you can send
-		// into the connections. Now, if you create a new connection, you
-		// you make the file buffer thingy with the new request and then
-		// hand it over to the server to handle
+		// decode the new request
+		request, err := DecodePacket(buf[:n])
+		if err != nil {
+			return nil, err
+		}
+
+		filebuffer, err := NewFileBuffer(request.(*ReadWriteRequest))
+		if err != nil {
+			return nil, err
+		}
+
 		return &Conn{
 			c:         conn,
 			destTID:   clientTID.AddrPort(),
 			connected: true,
+			fb:        filebuffer,
 		}, nil
 	}
 
