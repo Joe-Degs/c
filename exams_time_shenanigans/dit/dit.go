@@ -3,29 +3,26 @@
 package dit
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/netip"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 var (
-	// got a packet from another client while actively connected to another
-	ErrUnexpectedTID = errors.New("dit: packet from unexpected TID/address")
+	// Packet from an unexpected transfer identifier (address)
+	ErrUnexpectedTID = errors.New("dit: packet from unexpected TID (host)")
 
-	// calling Accept on a client connections
-	ErrClientAccept = errors.New("dit: a client cannot accept new connections")
+	// Calling accept on tftp clients ( this is not allowed )
+	ErrClientAccept = errors.New("dit: client cannot accept new connections")
 )
 
-// Conn can send and recieve files using the tftp protocol.
-// It keeps the address of the TFTP server connected to maintain
-// a kind of connection between server and client.
+// Conn is a tftp connection and provides functionality to send,
+// recieve and serve files over the protocol
 type Conn struct {
 	// This is the primary connection, an active udp listener.
 	// If the Conn is a client (connected=true) it accepts
@@ -94,7 +91,37 @@ func Listen(network, address string) (*Conn, error) {
 		return nil, err
 	}
 
-	return &Conn{c: c}, nil
+	return newListenConn(c)
+}
+
+func newListenConn(conn net.PacketConn) (*Conn, error) {
+	udpConn, ok := conn.(*net.UDPConn)
+	if !ok {
+		return nil, fmt.Errorf("dit: only works over udp protocol: %T", conn)
+	}
+	return &Conn{
+		c: udpConn,
+	}, nil
+}
+
+// ListenConfigConn gives you more control over the behaviour of the underlying
+// socket.
+//
+// This makes it possible to do things like set platform specific socket options
+// and adding a context to control lifetime of connections.
+func ListenConfigConn(ctx context.Context, cfg *net.ListenConfig, network, address string) (*Conn, error) {
+	if !strings.Contains(network, "udp") {
+		return nil, fmt.Errorf("dit: protocol runs only over udp, %s", network)
+	}
+	conn, err := cfg.ListenPacket(ctx, network, address)
+	if err != nil {
+		return nil, fmt.Errorf("dit: listenconfigconn: %w", err)
+	}
+	return newListenConn(conn)
+}
+
+func (c *Conn) Addr() net.Addr {
+	return c.c.LocalAddr()
 }
 
 // Accept waits and returns a Conn capable of responding to read/write
@@ -119,7 +146,9 @@ func (c *Conn) Accept() (*Conn, error) {
 			return nil, fmt.Errorf("dit: accept: %w", err)
 		}
 
-		if op := opcode(buf[:n]); op != Rrq || op != Wrq {
+		fmt.Println("got packet")
+		if op := opcode(buf[:n]); op != Rrq && op != Wrq {
+			fmt.Println("Opcode:", op)
 			continue
 		}
 
@@ -153,7 +182,6 @@ func (c *Conn) Accept() (*Conn, error) {
 		}, nil
 	}
 
-	return nil, nil
 }
 
 // DestinationTID returns the destination address (transfer identifier)
@@ -259,71 +287,6 @@ func (c *Conn) SetWriteDeadline(n time.Duration) error {
 	return c.c.SetWriteDeadline(time.Now().Add(n))
 }
 
-// Snoop sends a dummpy packet and waits for a response from the tftp server.
-func (c *Conn) Snoop() {
-	p := &ReadWriteRequest{
-		Opcode:   Rrq,
-		Filename: "path/to/file",
-		Mode:     "netascii",
-	}
-	c.SnoopWithPacket(p)
-}
-
-// SnoopWithPacket is `Snoop` but accepts the packet to send
-func (c *Conn) SnoopWithPacket(pk Packet) {
-	if pk == nil {
-		log.Fatal("dit: snoopwithpacket: expected a packet")
-	}
-
-	bytes, err := pk.marshal()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	data := make([]byte, 512+4)
-	for {
-		// write dummy packet
-		var (
-			n   int
-			err error
-		)
-
-		if c.connected {
-			if _, err := c.Write(bytes); err != nil {
-				log.Fatal(err)
-			}
-
-			// set read deadline on the connection
-			c.SetReadDeadline(10 * time.Second)
-			n, err = c.Read(data)
-			if err != nil {
-				log.Println(err.Error())
-				continue
-			}
-		} else {
-			// connect if not already connected
-			if n, _, err = c.connect(bytes, data); err != nil {
-				log.Fatal(err)
-			}
-		}
-
-		pack, err := DecodePacket(data[:n])
-		if err != nil {
-			log.Println(err.Error())
-			return
-		}
-		spew.Dump(pack)
-
-		// send acknowledgement if data was recieved
-		if op := pack.Op(); op == Data {
-			data := pack.(*DataPacket)
-			ack := &AckPacket{
-				Opcode:      op,
-				BlockNumber: data.BlockNumber,
-			}
-			if bytes, err := MarshalPacket(ack); err == nil {
-				c.Write(bytes)
-			}
-		}
-	}
+func (c *Conn) Close() error {
+	return c.c.Close()
 }

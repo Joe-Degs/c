@@ -13,7 +13,7 @@ func main() {
 	}
 	pk := &dit.ReadWriteRequest{
 		Opcode:   dit.Rrq,
-		Filename: "one_meg_file",
+		Filename: "lorem.txt",
 		Mode:     "netascii",
 	}
 	conn.SnoopWithPacket(pk)

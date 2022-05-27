@@ -10,7 +10,7 @@ import (
 
 // Packet is a TFTP protocol packet
 type Packet interface {
-	Op() Opcode
+	opcode() Opcode
 	marshal() ([]byte, error)
 	unmarshal([]byte) error
 }
@@ -113,7 +113,7 @@ func (p *ReadWriteRequest) marshal() ([]byte, error) {
 	return data, nil
 }
 
-func (p ReadWriteRequest) Op() Opcode {
+func (p ReadWriteRequest) opcode() Opcode {
 	return p.Opcode
 }
 
@@ -124,7 +124,7 @@ type DataPacket struct {
 	Data        []byte
 }
 
-func (DataPacket) Op() Opcode {
+func (DataPacket) opcode() Opcode {
 	return Data
 }
 
@@ -132,11 +132,12 @@ func (p *DataPacket) unmarshal(b []byte) error {
 	// p.Opcode = Opcode(binary.BigEndian.Uint16(b[0:2]))
 	p.BlockNumber = binary.BigEndian.Uint16(b[2:4])
 
-	// TODO(Joe-Degs): do not do this! slicing reuses the same
-	// underlying array so yeah if you hold on to this packet and
-	// the caller tampers with the slice you get affected to. consider
-	// using reusable buffers of some sort or create a new slice everytime
-	p.Data = b[4:]
+	if l := len(b[4:]); l > 0 {
+		p.Data = make([]byte, l)
+		if lc := copy(p.Data, b[4:]); lc != l {
+			return fmt.Errorf("unmarshaling %d bytes failed", l)
+		}
+	}
 	return nil
 }
 
@@ -153,7 +154,7 @@ type AckPacket struct {
 	BlockNumber uint16
 }
 
-func (AckPacket) Op() Opcode {
+func (AckPacket) opcode() Opcode {
 	return Ack
 }
 
@@ -192,7 +193,7 @@ type ErrorPacket struct {
 	ErrMsg    string
 }
 
-func (ErrorPacket) Op() Opcode {
+func (ErrorPacket) opcode() Opcode {
 	return Error
 }
 
