@@ -7,6 +7,8 @@ import (
 	"syscall"
 
 	"github.com/Joe-Degs/dit"
+	"github.com/davecgh/go-spew/spew"
+	"golang.org/x/sys/unix"
 )
 
 func main() {
@@ -15,13 +17,13 @@ func main() {
 			return c.Control(func(fd uintptr) {
 				// set socket option to let multiple processes to
 				// listen on the same port
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET,
+				unix.SetsockoptInt(int(fd), unix.SOL_SOCKET,
 					syscall.SO_REUSEADDR, 1)
 
 				// set the priority of the socket high to recieve the
 				// fucking packets becuase no packets are coming
-				// socket priority [low - hight] => [1 - 7]
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET,
+				// socket priority [low - high] => [1 - 7]
+				unix.SetsockoptInt(int(fd), unix.SOL_SOCKET,
 					syscall.SO_PRIORITY, 7)
 			})
 		},
@@ -41,6 +43,8 @@ func main() {
 			log.Fatal(err)
 		}
 
-		log.Printf("recieved request from %s", conn.DestinationTID())
+		// log.Printf("recieved request from %s", conn.DestinationTID())
+		spew.Dump(conn)
+		conn.Close()
 	}
 }
