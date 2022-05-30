@@ -39,10 +39,10 @@ type Conn struct {
 	// client. False if Conn is a server and only handling read/write requests.
 	connected bool
 
-	// fb represents a buffered read/writer for reading and writing file to/from
-	// system to client/servers. It contains the request to be serviced when
-	// being initialized.
-	fb *FileBuffer
+	// RequestBuffer returns the request and a file buffer func on connected
+	// client, this is left as "nil" on listening connections and clients that
+	// are not yet connected to any other remote clients for transfer
+	RequestBuffer func() (*ReadWriteRequest, FileBufferFunc)
 
 	mu sync.Mutex
 }
@@ -144,6 +144,8 @@ func (c *Conn) Accept() (*Conn, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// TODO(Joe-Degs): this seems like a bad way to do this. go see the
+	// go package see how they allocate memory for accept
 	buf := make([]byte, 256)
 	for {
 		n, clientTID, err := c.c.ReadFromUDP(buf)
@@ -151,6 +153,10 @@ func (c *Conn) Accept() (*Conn, error) {
 			return nil, fmt.Errorf("dit: accept: %w", err)
 		}
 
+		// TODO(Joe-Degs):
+		// is this right?, I dont really know man. Should this library
+		// sort of package be discarding packets???? shouldn't this be
+		// left for the server to decide?
 		if op := opcode(buf[:n]); op != Rrq && op != Wrq {
 			continue
 		}
@@ -172,18 +178,16 @@ func (c *Conn) Accept() (*Conn, error) {
 			return nil, err
 		}
 
-		filebuffer, err := NewFileBuffer(request.(*ReadWriteRequest))
-		if err != nil {
-			return nil, err
-		}
-
 		return &Conn{
 			c:         conn,
 			destTID:   clientTID.AddrPort(),
 			connected: true,
-			fb:        filebuffer,
+			RequestBuffer: func() (*ReadWriteRequest, FileBufferFunc) {
+				return NewFileBufferFunc(request.(*ReadWriteRequest))
+			},
 		}, nil
 	}
+	return nil, nil
 
 }
 
