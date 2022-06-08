@@ -3,6 +3,8 @@
 
 /* the init function. on inserting the module, this function is executed to
  * set things up before kernel starts to execute the the module program
+ *
+ *  - a non zero return from this init function means kernel will not be loaded
  */
 int init_module(void)
 {
