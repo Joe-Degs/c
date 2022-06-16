@@ -1,2 +1,14 @@
+# ignore all files
+*
+
+# unignore all with extensions
 !*.*
+
+# unignore all dirs
+!*/
+
 *.sw*
+*.tmp
+*.out
+*.o
+*.d
