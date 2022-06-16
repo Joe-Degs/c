@@ -1,11 +1,12 @@
 A make file is made of "targets", "dependencies" and "rules".
 
-> target: file to be created/updated, may be a directive or a label
+> target: file to be created/updated or a label, may be a directive or a label
           it depends on source files, object files or other target files
 > dependencies: anything depended on to create the resulting files
+
 > rules: set of commands for the make program to execute
 
-automatic variable of make
+automatic variables of make
 ----------------------------
 $@ -> name of current target
 $< -> name of first dependency
@@ -30,3 +31,10 @@ DEPS = type.h		# list all dependencies
 
 target: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
+
+new knowledge on makefiles
+--------------------------
+> makefiles use timestamps on files to check if a file has changed and if it
+  needs to recompile a file. I first thought it kept some sought of a hash to
+  determine if a file has changed but the timestamp thing is soo much easier
+  and trivial solution
