@@ -7,6 +7,11 @@
 # unignore all dirs
 !*/
 
+# unignore makefiles
+*Makefile
+!Makefile
+!makefile
+
 *.sw*
 *.tmp
 *.out
