@@ -1,1 +1,0 @@
-gcc bus_client.c -o bus_client `pkg-config --cflags --libs libsystemd`
