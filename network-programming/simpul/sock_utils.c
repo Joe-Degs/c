@@ -55,8 +55,8 @@ struct socket_data *open_tcpsock(const char *ip, uint16_t port)
 	}
 	freeaddrinfo(addr_ll);
 
-	/* if p is NULL, it means we did not successfully open a socket so we
-	 * terminate the operation
+	/* if p is NULL, it means we went through the addrinfo linked list but
+	 * could not successfully open any socket with the addrinfo :(
 	 */
 	if (p==NULL) {
 		fprintf(stderr, "failed to open socket at addr %s:%s\n", ip, port_str);
@@ -64,17 +64,18 @@ struct socket_data *open_tcpsock(const char *ip, uint16_t port)
 	}
 
 	/* allocate a socket_data to keep the address and fd of socket */	
-	struct socket_data *s_data = malloc(sizeof(struct socket_data));
-	s_data->sockfd = sockfd;
-	s_data->family = p->ai_family;
-	s_data->addrlen = p->ai_addrlen;
+	struct socket_data *sd = malloc(sizeof(struct socket_data));
+	sd->sockfd = sockfd;
+	sd->family = p->ai_family;
+	sd->addrlen = p->ai_addrlen;
 
 	/* copy sockaddr data from addrinfo into socket_data struct */
-	s_data->addr = malloc(sizeof(struct sockaddr));
-	memcpy(s_data->addr, p->ai_addr, sizeof(struct sockaddr));
-	return s_data;
+	sd->addr = malloc(sizeof(struct sockaddr));
+	memcpy(sd->addr, p->ai_addr, sizeof(struct sockaddr));
+	return sd;
 }
 
+/* close_socket closes the socket file descriptor and frees the memory */
 int close_socket(struct socket_data *sd)
 {
 	int i = close(sd->sockfd);
@@ -83,11 +84,11 @@ int close_socket(struct socket_data *sd)
 	return i;
 }
 
-/* sock_err is used to free the socket_data and exit application */
-void sock_err(struct socket_data *data, char *msg)
+/* sock_err frees socket data memory and exits application on error */
+void sock_err(struct socket_data *sd, char *msg)
 {
-	close_socket(data);
 	perror(msg);
+	close_socket(sd);
 	exit(-1);
 }
 
@@ -96,33 +97,35 @@ void sock_err(struct socket_data *data, char *msg)
  */
 struct socket_data *listen_tcp(const char *ip, uint16_t port)
 {
-	struct socket_data *s_data = open_tcpsock(ip, port);
+	struct socket_data *sd = open_tcpsock(ip, port);
 
-	/* set socket options reuseaddr so we can use an addr already
-	 * in use
-	 */
-	int fd = s_data->sockfd;
+	/* set reuseaddr socket option */
+	int fd = sd->sockfd;
 	int yes = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
-		sock_err(s_data, "setsockopt");
+		sock_err(sd, "setsockopt");
 
 	/* bind socket to address we used to open socket */
-	if (bind(fd, s_data->addr, s_data->addrlen) == -1)
-		sock_err(s_data, "bind");
+	if (bind(fd, sd->addr, sd->addrlen) == 1)
+		sock_err(sd, "bind");
 
 	/* mark socket as a listening socket */
 	if (listen(fd, BACKLOG) == -1)
-		sock_err(s_data, "listen");
+		sock_err(sd, "listen");
 	
-	return s_data;
-
+	return sd;
 }
 
 struct socket_data *connect_tcp(const char *ip, uint16_t port)
 {
-	struct socket_data *s_data = open_tcpsock(ip, port);
-	if (connect(s_data->sockfd, s_data->addr, s_data->addrlen) == -1)
-		sock_err(s_data, "connect");
+	struct socket_data *sd = open_tcpsock(ip, port);
+	if (connect(sd->sockfd, sd->addr, sd->addrlen) == -1)
+		sock_err(sd, "connect");
 
-	return s_data;
+	return sd;
+}
+
+int accept_tcp(struct socket_data *sd)
+{
+	return accept(sd->sockfd, sd->addr, &(sd->addrlen));
 }

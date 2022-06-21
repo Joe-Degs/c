@@ -18,6 +18,10 @@ struct socket_data {
 
 struct socket_data *listen_tcp(const char *, uint16_t);
 struct socket_data *connect_tcp(const char *, uint16_t);
+
+int close_socket(struct socket_data *);
+int accept_tcp(struct socket_data *);
+
 void get_inetaddr_str(struct socket_data *, char *);
 
 #endif /* SIMP_H */

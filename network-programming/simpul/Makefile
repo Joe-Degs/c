@@ -27,7 +27,7 @@ echo:
 $(srv_bin): $(srv_obj)
 	$(CC) $(CFLAGS) -o $@ $^
 
-$(cl_bin): $(srv_obj)
+$(cl_bin): $(cl_obj)
 	$(CC) $(CFLAGS) -o $@ $^
 
 %.o: %.c
